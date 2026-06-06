@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     io::Write,
     path::{Path, PathBuf},
     process::Command,

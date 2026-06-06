@@ -9,6 +9,7 @@ log = "0.4"
 shodh-redb = "0.5.0"
 thiserror = "2.0.18"
 ntex = {version="3.9.6",features=["compio"]}
+
 [build-dependencies]
 # flatbuffers-build = "=25.12.19"
 serde = { version = "1", features = ["derive"] }

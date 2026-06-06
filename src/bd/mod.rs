@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use shodh_redb::ttl_table::TtlTableDefinition;
 use shodh_redb::{Database, Key, TableDefinition, TableHandle, Value};
-
-/// Global database instance.
-pub static DB: OnceLock<DBWrapper> = OnceLock::new();
 
 // ---------------------------------------------------------------------------
 // Error
@@ -49,10 +46,18 @@ trait RawBuffer: Send + Sync + 'static {
 // ---------------------------------------------------------------------------
 // DBWrapper — database handle with backup + compaction + buffers
 // ---------------------------------------------------------------------------
-
 pub struct DBWrapper {
     db: Arc<Database>,
-    buffers: Mutex<HashMap<String, Arc<dyn RawBuffer>>>,
+    buffers: Arc<Mutex<HashMap<String, Arc<dyn RawBuffer>>>>,
+}
+
+impl Clone for DBWrapper {
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            buffers: self.buffers.clone(),
+        }
+    }
 }
 
 // Manual Debug — `dyn RawBuffer` doesn't implement Debug.
@@ -71,7 +76,7 @@ impl DBWrapper {
         let db = Arc::new(db!(Database::create(path))?);
         Ok(Self {
             db,
-            buffers: Mutex::new(HashMap::new()),
+            buffers: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -106,22 +111,42 @@ impl DBWrapper {
 
     /// Spawn a background task that compacts and backs up the database once
     /// every 24 hours, using the **compio** async runtime (via `ntex`).
-    pub fn spawn_maintenance_loop() {
-        let _ = ntex::rt::spawn(async move {
+    pub fn spawn_maintenance_loop(&self) {
+        let db = self.db.clone();
+        drop(ntex::rt::spawn(async move {
             let day = Duration::from_secs(24 * 60 * 60);
             loop {
                 ntex::time::sleep(day).await;
 
-                if let Some(db) = DB.get() {
-                    if let Err(e) = db.compact() {
-                        log::error!("compaction error: {e}");
-                    }
-                    if let Err(e) = db.backup() {
-                        log::error!("backup error: {e}");
-                    }
+                // compact
+                let compact_res = (|| -> Result<(), DbError> {
+                    let handle = db!(db.start_compaction())?;
+                    let steps = db!(handle.run())?;
+                    log::info!("database compaction completed ({steps} steps)");
+                    Ok(())
+                })();
+                if let Err(e) = compact_res {
+                    log::error!("compaction error: {e}");
+                }
+
+                // backup
+                let backup_res = (|| -> Result<(), DbError> {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let backup_dir = "backups";
+                    std::fs::create_dir_all(backup_dir)?;
+                    let backup_path = format!("{backup_dir}/redb_{now}.redb");
+                    db!(db.backup(&backup_path))?;
+                    log::info!("backup saved to {backup_path}");
+                    Ok(())
+                })();
+                if let Err(e) = backup_res {
+                    log::error!("backup error: {e}");
                 }
             }
-        });
+        }));
     }
 
     // -- Buffer creation ----------------------------------------------------
@@ -381,7 +406,7 @@ where
 
         // Spawn a background task that flushes on the timer.
         let bg = Arc::downgrade(&inner);
-        let _ = ntex::rt::spawn(async move {
+        drop(ntex::rt::spawn(async move {
             ntex::time::sleep(flush_interval).await;
             loop {
                 let Some(inner) = bg.upgrade() else {
@@ -392,14 +417,14 @@ where
                 }
 
                 let elapsed = inner.last_flush.lock().unwrap().elapsed();
-                if elapsed >= inner.flush_interval {
-                    if let Err(e) = Self::flush_inner(&inner) {
-                        log::error!("write-buffer auto-flush error: {e}");
-                    }
+                if elapsed >= inner.flush_interval
+                    && let Err(e) = Self::flush_inner(&inner)
+                {
+                    log::error!("write-buffer auto-flush error: {e}");
                 }
                 ntex::time::sleep(inner.flush_interval).await;
             }
-        });
+        }));
 
         Self { inner }
     }
