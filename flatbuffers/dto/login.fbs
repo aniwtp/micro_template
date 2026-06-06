@@ -1,0 +1,12 @@
+include "../types/tokens.fbs";
+
+namespace DTO.Login;
+table LoginRequest{
+    username: string; 
+    password: string;
+    
+} 
+  
+table TokenResponse{
+    token: Types.RSTokens;
+}
