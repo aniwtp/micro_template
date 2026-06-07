@@ -1,2 +1,2 @@
 [template]
-skip = ["**/config.rs"]
+exclude = ["src/config.rs"]
