@@ -1,0 +1,24 @@
+# rustfmt configuration — micro_tamplate
+#
+# See: https://rust-lang.github.io/rustfmt/
+
+edition = "2024"
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+
+# ---- imports ----------------------------------------------------
+reorder_imports = true
+
+# ---- spacing ----------------------------------------------------
+newline_style = "Unix"
+use_small_heuristics = "Max"
+
+# ---- macros -----------------------------------------------------
+use_try_shorthand = true
+
+# ---- structs / enums --------------------------------------------
+match_block_trailing_comma = true
+
+# ---- misc -------------------------------------------------------
+merge_derives = true

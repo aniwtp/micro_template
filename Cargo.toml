@@ -1,7 +1,25 @@
 [package]
-name = "micro_tamplate"
+name = "micro_template"
 version = "0.1.0"
 edition = "2024"
+[features]
+default = ["log-info"]
+
+# Compile-time log level — pick exactly ONE (features are mutually exclusive).
+#   cargo build                           → info + warn + error (default)
+#   cargo build --no-default-features --features log-trace   → all levels
+#   cargo build --no-default-features --features log-debug   → debug + info + warn + error
+#   cargo build --no-default-features --features log-error   → error only
+#   cargo build --no-default-features --features log-off     → all logging stripped
+#
+# Code below the chosen level is removed entirely by the compiler.
+
+log-off   = ["log/max_level_off",   "log/release_max_level_off"]
+log-error = ["log/max_level_error", "log/release_max_level_error"]
+log-warn  = ["log/max_level_warn",  "log/release_max_level_warn"]
+log-info  = ["log/max_level_info",  "log/release_max_level_info"]
+log-debug = ["log/max_level_debug", "log/release_max_level_debug"]
+log-trace = ["log/max_level_trace", "log/release_max_level_trace"]
 
 [dependencies]
 flatbuffers="25.12.19"
@@ -9,6 +27,9 @@ log = "0.4"
 shodh-redb = "0.5.0"
 thiserror = "2.0.18"
 ntex = {version="3.9.6",features=["compio"]}
+
+[dev-dependencies]
+reqwest = { version = "0.13.4", features = ["blocking"] }
 
 [build-dependencies]
 # flatbuffers-build = "=25.12.19"

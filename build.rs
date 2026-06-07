@@ -25,18 +25,12 @@ fn hash_file(path: &Path) -> String {
 }
 
 fn load_cache(path: &Path) -> HashMap<String, String> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 fn save_cache(path: &Path, cache: &HashMap<String, String>) {
     let json = serde_json::to_string_pretty(cache).unwrap();
-    fs::File::create(path)
-        .unwrap()
-        .write_all(json.as_bytes())
-        .unwrap();
+    fs::File::create(path).unwrap().write_all(json.as_bytes()).unwrap();
 }
 
 fn write_mod_tree(out_root: &Path) {
@@ -130,10 +124,8 @@ fn main() {
     let dto_dir = schema_root.join("dto");
     let types_dir = schema_root.join("types");
 
-    let all_files: Vec<_> = collect_fbs(&types_dir)
-        .into_iter()
-        .chain(collect_fbs(&dto_dir))
-        .collect();
+    let all_files: Vec<_> =
+        collect_fbs(&types_dir).into_iter().chain(collect_fbs(&dto_dir)).collect();
 
     println!("cargo:rerun-if-changed=flatbuffers");
     for file in &all_files {

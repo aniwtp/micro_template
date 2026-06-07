@@ -1,0 +1,15 @@
+# Clippy configuration — micro_tamplate
+#
+# See: https://doc.rust-lang.org/clippy/
+
+# ---- lint thresholds --------------------------------------------
+cognitive-complexity-threshold = 30
+
+# ---- wildcard imports in generated code --------------------------
+# FlatBuffer-generated modules use wildcard imports internally —
+# the `#![allow(…)]` in generated files handles this at the source
+# level, so we don't need project-wide suppression here.
+
+# ---- naming -----------------------------------------------------
+# Don't flag reborrow patterns from generated flatbuffer code.
+enforce-iter-loop-reborrow = false

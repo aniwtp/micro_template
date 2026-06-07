@@ -6,19 +6,11 @@ use std::time::{Duration, Instant};
 use shodh_redb::ttl_table::TtlTableDefinition;
 use shodh_redb::{Database, Key, TableDefinition, TableHandle, Value};
 
-// ---------------------------------------------------------------------------
-// Error
-// ---------------------------------------------------------------------------
+use crate::errors::DbError;
 
-#[derive(Debug, thiserror::Error)]
-pub enum DbError {
-    #[error("database error: {0}")]
-    Redb(#[from] shodh_redb::error::Error),
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("no write buffer registered for this table")]
-    NoBuffer,
-}
+// ---------------------------------------------------------------------------
+// Internal helper macro — wraps redb calls into DbError::Redb
+// ---------------------------------------------------------------------------
 
 macro_rules! db {
     ($e:expr) => {
@@ -53,10 +45,7 @@ pub struct DBWrapper {
 
 impl Clone for DBWrapper {
     fn clone(&self) -> Self {
-        Self {
-            db: self.db.clone(),
-            buffers: self.buffers.clone(),
-        }
+        Self { db: self.db.clone(), buffers: self.buffers.clone() }
     }
 }
 
@@ -73,18 +62,19 @@ impl std::fmt::Debug for DBWrapper {
 impl DBWrapper {
     /// Open (or create) the redb database at `path`.
     pub fn new(path: &str) -> Result<Self, DbError> {
+        log::debug!("DBWrapper::new opening database at {path}");
         let db = Arc::new(db!(Database::create(path))?);
-        Ok(Self {
-            db,
-            buffers: Arc::new(Mutex::new(HashMap::new())),
-        })
+        log::info!("database opened: {path}");
+        Ok(Self { db, buffers: Arc::new(Mutex::new(HashMap::new())) })
     }
 
     // -- Maintenance --------------------------------------------------------
 
     /// Run a full compaction.
     pub fn compact(&self) -> Result<(), DbError> {
+        log::debug!("starting database compaction");
         let handle = db!(self.db.start_compaction())?;
+        log::trace!("compaction handle acquired, running...");
         let steps = db!(handle.run())?;
         log::info!("database compaction completed ({steps} steps)");
         Ok(())
@@ -92,15 +82,19 @@ impl DBWrapper {
 
     /// Create a timestamped backup inside the `backups/` directory.
     pub fn backup(&self) -> Result<(), DbError> {
+        log::debug!("starting database backup");
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
 
         let backup_dir = "backups";
-        std::fs::create_dir_all(backup_dir)?;
+        std::fs::create_dir_all(backup_dir).inspect_err(|e| {
+            log::error!("failed to create backup dir {backup_dir}: {e}");
+        })?;
 
         let backup_path = format!("{backup_dir}/redb_{now}.redb");
+        log::trace!("writing backup to {backup_path}");
         db!(self.db.backup(&backup_path))?;
 
         log::info!("backup saved to {backup_path}");
@@ -113,24 +107,29 @@ impl DBWrapper {
     /// every 24 hours, using the **compio** async runtime (via `ntex`).
     pub fn spawn_maintenance_loop(&self) {
         let db = self.db.clone();
+        log::debug!("spawning 24h maintenance loop");
         drop(ntex::rt::spawn(async move {
             let day = Duration::from_secs(24 * 60 * 60);
+            log::debug!("maintenance loop started (interval: 24h)");
             loop {
                 ntex::time::sleep(day).await;
+                log::debug!("maintenance tick — running compaction + backup");
 
                 // compact
                 let compact_res = (|| -> Result<(), DbError> {
+                    log::trace!("maintenance: starting compaction");
                     let handle = db!(db.start_compaction())?;
                     let steps = db!(handle.run())?;
                     log::info!("database compaction completed ({steps} steps)");
                     Ok(())
                 })();
                 if let Err(e) = compact_res {
-                    log::error!("compaction error: {e}");
+                    log::error!("maintenance compaction error: {e}");
                 }
 
                 // backup
                 let backup_res = (|| -> Result<(), DbError> {
+                    log::trace!("maintenance: starting backup");
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -143,7 +142,7 @@ impl DBWrapper {
                     Ok(())
                 })();
                 if let Err(e) = backup_res {
-                    log::error!("backup error: {e}");
+                    log::error!("maintenance backup error: {e}");
                 }
             }
         }));
@@ -164,6 +163,10 @@ impl DBWrapper {
         K: Key + Send + Sync + 'static,
         V: Value + Send + Sync + 'static,
     {
+        let name = table_def.name();
+        log::debug!(
+            "creating write buffer for table `{name}` (max_size={max_buffer_size}, flush_interval={flush_interval:?})"
+        );
         let wb = WriteBuffer::new(
             self.db.clone(),
             TableKind::Regular(table_def),
@@ -171,7 +174,8 @@ impl DBWrapper {
             flush_interval,
         );
         let mut buffers = self.buffers.lock().unwrap();
-        buffers.insert(table_def.name().to_owned(), Arc::new(wb));
+        buffers.insert(name.to_owned(), Arc::new(wb));
+        log::info!("write buffer registered for table `{name}`");
     }
 
     /// Register a write buffer for a TTL-enabled table.
@@ -189,6 +193,11 @@ impl DBWrapper {
         K: Key + Send + Sync + 'static,
         V: Value + Send + Sync + 'static,
     {
+        let name = ttl_def.name();
+        let force = flush_interval > ttl;
+        log::debug!(
+            "creating TTL write buffer for table `{name}` (max_size={max_buffer_size}, flush_interval={flush_interval:?}, ttl={ttl:?}, force_flush={force})"
+        );
         let wb = WriteBuffer::new(
             self.db.clone(),
             TableKind::Ttl { def: ttl_def, ttl },
@@ -196,7 +205,13 @@ impl DBWrapper {
             flush_interval,
         );
         let mut buffers = self.buffers.lock().unwrap();
-        buffers.insert(ttl_def.name().to_owned(), Arc::new(wb));
+        buffers.insert(name.to_owned(), Arc::new(wb));
+        log::info!("TTL write buffer registered for table `{name}`");
+        if force {
+            log::warn!(
+                "TTL buffer `{name}`: flush_interval ({flush_interval:?}) > ttl ({ttl:?}) — every push will force-flush"
+            );
+        }
     }
 
     // -- Buffer operations --------------------------------------------------
@@ -216,21 +231,27 @@ impl DBWrapper {
         K: Key + Send + 'static,
         V: Value + Send + 'static,
     {
+        let table_name = table_def.name();
+        log::trace!("write_or_buffer → table `{table_name}`");
+
         let buffers = self.buffers.lock().unwrap();
-        if let Some(buf) = buffers.get(table_def.name()) {
+        if let Some(buf) = buffers.get(table_name) {
             let buf = buf.clone();
             drop(buffers);
 
             if buf.force_flush() {
+                log::trace!("force-flushing TTL buffer `{table_name}` before push");
                 buf.flush()?;
             }
             let k_bytes = serialize_value(&key);
             let v_bytes = serialize_value(&value);
+            log::trace!("pushing to buffer `{table_name}` (pending: {})", buf.len() + 1);
             return buf.push_raw(k_bytes, v_bytes);
         }
         drop(buffers);
 
         // No buffer — write directly.
+        log::trace!("no buffer for `{table_name}` — writing directly to DB");
         let k_bytes = serialize_value(&key);
         let v_bytes = serialize_value(&value);
         let write_txn = db!(self.db.begin_write())?;
@@ -241,6 +262,7 @@ impl DBWrapper {
             db!(table.insert(k, v))?;
         }
         db!(write_txn.commit())?;
+        log::debug!("direct write to `{table_name}` committed");
         Ok(())
     }
 
@@ -256,21 +278,27 @@ impl DBWrapper {
         K: Key + Send + 'static,
         V: Value + Send + 'static,
     {
+        let table_name = ttl_def.name();
+        log::trace!("write_ttl_or_buffer → table `{table_name}` (ttl={ttl:?})");
+
         let buffers = self.buffers.lock().unwrap();
-        if let Some(buf) = buffers.get(ttl_def.name()) {
+        if let Some(buf) = buffers.get(table_name) {
             let buf = buf.clone();
             drop(buffers);
 
             if buf.force_flush() {
+                log::trace!("force-flushing TTL buffer `{table_name}` before push");
                 buf.flush()?;
             }
             let k_bytes = serialize_value(&key);
             let v_bytes = serialize_value(&value);
+            log::trace!("pushing to TTL buffer `{table_name}` (pending: {})", buf.len() + 1);
             return buf.push_raw(k_bytes, v_bytes);
         }
         drop(buffers);
 
         // No buffer — write directly with TTL.
+        log::trace!("no buffer for `{table_name}` — writing directly to DB with TTL");
         let k_bytes = serialize_value(&key);
         let v_bytes = serialize_value(&value);
         let write_txn = db!(self.db.begin_write())?;
@@ -281,31 +309,59 @@ impl DBWrapper {
             db!(table.insert_with_ttl(k, v, ttl))?;
         }
         db!(write_txn.commit())?;
+        log::debug!("direct TTL write to `{table_name}` committed");
         Ok(())
     }
 
     /// Flush all pending entries for the given table.
     pub fn flush_table(&self, table_name: &str) -> Result<usize, DbError> {
+        log::debug!("flushing buffer for table `{table_name}`");
         let buffers = self.buffers.lock().unwrap();
-        let buf = buffers.get(table_name).ok_or(DbError::NoBuffer)?.clone();
+        let buf = buffers
+            .get(table_name)
+            .ok_or_else(|| {
+                log::warn!("flush_table: no buffer registered for `{table_name}`");
+                DbError::NoBuffer(table_name.into())
+            })?
+            .clone();
         drop(buffers);
-        buf.flush()
+        let flushed = buf.flush()?;
+        log::debug!("flushed {flushed} entries from `{table_name}`");
+        Ok(flushed)
     }
 
     /// Flush all registered buffers.
     pub fn flush_all(&self) -> Result<(), DbError> {
         let buffers = self.buffers.lock().unwrap();
-        for buf in buffers.values() {
-            buf.flush()?;
+        let count = buffers.len();
+        log::debug!("flushing all {count} registered buffers");
+        let mut total = 0usize;
+        for (name, buf) in buffers.iter() {
+            match buf.flush() {
+                Ok(n) => {
+                    log::trace!("flushed {n} entries from buffer `{name}`");
+                    total += n;
+                },
+                Err(e) => {
+                    log::error!("flush_all: failed to flush buffer `{name}`: {e}");
+                    return Err(e);
+                },
+            }
         }
+        log::info!("flush_all complete: {total} total entries flushed across {count} buffers");
         Ok(())
     }
 
     /// Number of pending entries in a specific buffer.
     pub fn buffer_len(&self, table_name: &str) -> Result<usize, DbError> {
         let buffers = self.buffers.lock().unwrap();
-        let buf = buffers.get(table_name).ok_or(DbError::NoBuffer)?;
-        Ok(buf.len())
+        let buf = buffers.get(table_name).ok_or_else(|| {
+            log::warn!("buffer_len: no buffer registered for `{table_name}`");
+            DbError::NoBuffer(table_name.into())
+        })?;
+        let len = buf.len();
+        log::trace!("buffer `{table_name}` has {len} pending entries");
+        Ok(len)
     }
 }
 
@@ -315,10 +371,7 @@ impl DBWrapper {
 
 enum TableKind<K: Key + 'static, V: Value + 'static> {
     Regular(TableDefinition<'static, K, V>),
-    Ttl {
-        def: TtlTableDefinition<K, V>,
-        ttl: Duration,
-    },
+    Ttl { def: TtlTableDefinition<K, V>, ttl: Duration },
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +395,7 @@ unsafe fn as_self_type_ref<T: Value>(value: &T) -> &T::SelfType<'_> {
 /// Serialise a `Value` to bytes.
 fn serialize_value<T: Value>(value: &T) -> Vec<u8> {
     // SAFETY: `as_self_type_ref` is valid for all `shodh_redb::Value` types.
-    T::as_bytes(unsafe { as_self_type_ref(value) })
-        .as_ref()
-        .to_vec()
+    T::as_bytes(unsafe { as_self_type_ref(value) }).as_ref().to_vec()
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +445,14 @@ where
         max_size: usize,
         flush_interval: Duration,
     ) -> Self {
+        let table_name = match &kind {
+            TableKind::Regular(def) => def.name().to_owned(),
+            TableKind::Ttl { def, .. } => def.name().to_owned(),
+        };
+        log::trace!(
+            "WriteBuffer::new for `{table_name}` (max_size={max_size}, flush_interval={flush_interval:?})"
+        );
+
         let inner = Arc::new(WriteBufferInner {
             db,
             kind,
@@ -406,21 +465,32 @@ where
 
         // Spawn a background task that flushes on the timer.
         let bg = Arc::downgrade(&inner);
+        let fi = flush_interval;
+        let tn = table_name.clone();
         drop(ntex::rt::spawn(async move {
-            ntex::time::sleep(flush_interval).await;
+            ntex::time::sleep(fi).await;
+            log::trace!("WriteBuffer `{tn}` background flusher started");
             loop {
                 let Some(inner) = bg.upgrade() else {
+                    log::debug!("WriteBuffer `{tn}` background flusher exiting (buffer dropped)");
                     return;
                 };
                 if !inner.alive.load(Ordering::Acquire) {
+                    log::debug!("WriteBuffer `{tn}` background flusher exiting (alive=false)");
                     return;
                 }
 
                 let elapsed = inner.last_flush.lock().unwrap().elapsed();
-                if elapsed >= inner.flush_interval
-                    && let Err(e) = Self::flush_inner(&inner)
-                {
-                    log::error!("write-buffer auto-flush error: {e}");
+                if elapsed >= inner.flush_interval {
+                    match Self::flush_inner(&inner) {
+                        Ok(n) if n > 0 => {
+                            log::debug!("WriteBuffer `{tn}` auto-flushed {n} entries");
+                        },
+                        Err(e) => {
+                            log::error!("WriteBuffer `{tn}` auto-flush error: {e}");
+                        },
+                        _ => {},
+                    }
                 }
                 ntex::time::sleep(inner.flush_interval).await;
             }
@@ -432,12 +502,14 @@ where
     fn flush_inner(inner: &WriteBufferInner<K, V>) -> Result<usize, DbError> {
         let mut buf = inner.buffer.lock().unwrap();
         if buf.is_empty() {
+            log::trace!("flush_inner: buffer is empty, nothing to flush");
             return Ok(0);
         }
         let entries: Vec<_> = std::mem::take(&mut *buf);
+        let count = entries.len();
         drop(buf);
 
-        let count = entries.len();
+        log::trace!("flush_inner: writing {count} entries to DB");
 
         let write_txn = db!(inner.db.begin_write())?;
         match &inner.kind {
@@ -448,7 +520,7 @@ where
                     let value = V::from_bytes(v_bytes);
                     db!(table.insert(key, value))?;
                 }
-            }
+            },
             TableKind::Ttl { def, ttl } => {
                 let mut table = db!(write_txn.open_ttl_table(*def))?;
                 for (k_bytes, v_bytes) in &entries {
@@ -456,11 +528,12 @@ where
                     let value = V::from_bytes(v_bytes);
                     db!(table.insert_with_ttl(key, value, *ttl))?;
                 }
-            }
+            },
         }
         db!(write_txn.commit())?;
 
         *inner.last_flush.lock().unwrap() = Instant::now();
+        log::debug!("flush_inner: committed {count} entries");
         Ok(count)
     }
 }
@@ -477,10 +550,17 @@ where
     fn push_raw(&self, k_bytes: Vec<u8>, v_bytes: Vec<u8>) -> Result<(), DbError> {
         let mut buf = self.inner.buffer.lock().unwrap();
         buf.push((k_bytes, v_bytes));
-        let should_flush = buf.len() >= self.inner.max_size;
+        let new_len = buf.len();
+        let should_flush = new_len >= self.inner.max_size;
         drop(buf);
 
+        log::trace!("push_raw: buffer size {new_len}/{}", self.inner.max_size);
+
         if should_flush {
+            log::debug!(
+                "push_raw: buffer reached max_size={}, triggering flush",
+                self.inner.max_size
+            );
             self.flush()?;
         }
         Ok(())
@@ -509,8 +589,11 @@ where
 {
     fn drop(&mut self) {
         self.inner.alive.store(false, Ordering::Release);
-        if let Err(e) = Self::flush_inner(&self.inner) {
-            log::error!("write-buffer drop-flush error: {e}");
+        log::debug!("WriteBuffer::drop — performing final flush");
+        match Self::flush_inner(&self.inner) {
+            Ok(n) if n > 0 => log::info!("WriteBuffer::drop flushed {n} remaining entries"),
+            Err(e) => log::error!("WriteBuffer::drop flush error: {e}"),
+            _ => log::trace!("WriteBuffer::drop: no entries to flush"),
         }
     }
 }
