@@ -1,0 +1,4 @@
+[template]
+skip = [
+    "src/config.rs",
+]
