@@ -161,26 +161,33 @@ pub fn get_config(key: &str) -> Option<String> {
 // Convenience macro
 // ---------------------------------------------------------------------------
 
+/// Parse a config string to type `T`, falling back to `default`.
+///
+/// Internally calls [`get_config`] and then [`str::parse`].
+/// `T` must implement [`FromStr`] — this includes `String` and all numeric types.
+pub fn config_parse<T: std::str::FromStr>(key: &str, default: T) -> T {
+    get_config(key).and_then(|s| s.parse::<T>().ok()).unwrap_or(default)
+}
+
 /// Look up a configuration value.
 ///
 /// ```ignore
-/// config!("KEY")           → Option<String>
-/// config!("KEY", "default") → String        (with default)
-/// config!("KEY", 8080_u16)  → u16           (parsed from string)
+/// config!("KEY")            → Option<String>
+/// config!("KEY", "val")     → String   (use ".into()" for &str defaults)
+/// config!("KEY", 8080_u16)  → u16      (parsed from string)
 /// ```
 ///
-/// For the default form, the default **must** implement `Into<String>`,
-/// and for numeric types it additionally implements `FromStr`.
+/// For the with-default form, the default value determines the return type.
+/// String defaults should be written as `"...".into()` or `String::from("...")`.
+/// Numeric defaults work directly via `FromStr`.
 #[macro_export]
 macro_rules! config {
     // No default — returns Option<String>
     ($key:expr) => {
         $crate::config::get_config($key)
     };
-    // With default — panics if the default cannot be parsed (shouldn't happen
-    // for literals).
-    ($key:expr, $default:expr) => {{
-        let default_str: String = ($default).into();
-        $crate::config::get_config($key).unwrap_or(default_str)
-    }};
+    // With default — parses config to the same type as $default via FromStr.
+    ($key:expr, $default:expr) => {
+        $crate::config::config_parse($key, $default)
+    };
 }
