@@ -24,7 +24,7 @@ log-trace = ["log/max_level_trace", "log/release_max_level_trace"]
 [dependencies]
 flatbuffers="25.12.19"
 log = "0.4"
-shodh-redb = "0.5.0"
+shodh-redb = {version="0.5.0",features=["compression_lz4"]}
 thiserror = "2.0.18"
 ntex = {version="3.9.6",features=["compio"]}
 
