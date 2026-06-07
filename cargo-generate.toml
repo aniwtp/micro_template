@@ -1,2 +1,2 @@
 [template]
-skip = ["src/config.rs"]
+skip = ["**/config.rs"]
