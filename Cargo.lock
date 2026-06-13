@@ -428,6 +428,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "db-wrapper"
+version = "0.1.0"
+source = "git+https://github.com/aniwtp/db_wrapper.git#79c83e036003f3188fa5c1efa530b100dd8750d0"
+dependencies = [
+ "log",
+ "shodh-redb",
+ "thiserror",
+]
+
+[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1201,6 +1211,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1216,10 +1235,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
-name = "micro_template"
+name = "micro-tamplate"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "db-wrapper",
  "flatbuffers",
  "log",
  "ntex",
@@ -2253,6 +2273,7 @@ checksum = "9d5877207dc03e8f5c3157aba818906d68b280daf9967d28d0c22a2264098b9d"
 dependencies = [
  "hashbrown 0.15.5",
  "libc",
+ "lz4_flex",
  "portable-atomic",
  "sha2",
  "spin",
@@ -2605,6 +2626,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 
 [[package]]
 name = "typenum"

@@ -1,4 +1,4 @@
-# AGENT.md — micro_tamplate
+# AGENT.md — {{project-name}}
 
 Backend microservice template: **ntex** (async web framework on compio),
 **redb** (embedded K/V database), **flatbuffers** (zero-copy serialisation).

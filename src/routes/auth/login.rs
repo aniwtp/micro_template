@@ -3,9 +3,9 @@ use ntex::{
     util::Bytes,
     web::{self, types::State},
 };
+use db_wrapper::DBWrapper;
 
 use crate::{
-    bd::DBWrapper,
     errors::AuthError,
     generated::{
         dto::login_generated::dto::login::{LoginRequest, TokenResponse, TokenResponseArgs},

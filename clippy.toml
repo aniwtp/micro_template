@@ -1,4 +1,4 @@
-# Clippy configuration — micro_tamplate
+# Clippy configuration — {{project-name}}
 #
 # See: https://doc.rust-lang.org/clippy/
 

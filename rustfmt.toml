@@ -1,4 +1,4 @@
-# rustfmt configuration — micro_tamplate
+# rustfmt configuration — {{project-name}}
 #
 # See: https://rust-lang.github.io/rustfmt/
 

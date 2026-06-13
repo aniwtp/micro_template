@@ -1,4 +1,4 @@
-# micro_tamplate
+# {{project-name}}
 
 Backend microservice template on **ntex** + **redb** + **FlatBuffers**.
 
