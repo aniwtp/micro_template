@@ -35,7 +35,7 @@ log = "0.4"
 shodh-redb = {version="0.5.0",features=["compression_lz4"]}
 db-wrapper = { git = "https://github.com/aniwtp/db_wrapper.git" }
 thiserror = "2.0.18"
-ntex = {version="3.9.6",features=["compio"]}
+ntex = {version="3.9.8",features=["compio"]}
 
 [dev-dependencies]
 reqwest = { version = "0.13.4", features = ["blocking"] }
