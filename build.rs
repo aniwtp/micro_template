@@ -1,179 +1,104 @@
-use std::{
-    collections::HashMap,
-    env, fs,
-    io::Write,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, path::Path, process::Command};
 
-fn collect_fbs(dir: &Path) -> Vec<PathBuf> {
+/// Collect all `.fbs` files directly under `dir`.
+fn collect_fbs(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) == Some("fbs") {
-                out.push(path);
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("fbs") {
+                out.push(p.to_string_lossy().to_string());
             }
         }
     }
+    out.sort();
     out
 }
 
-fn hash_file(path: &Path) -> String {
-    let data = fs::read(path).expect("failed to read fbs");
-    blake3::hash(&data).to_hex().to_string()
-}
-
-fn load_cache(path: &Path) -> HashMap<String, String> {
-    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
-}
-
-fn save_cache(path: &Path, cache: &HashMap<String, String>) {
-    let json = serde_json::to_string_pretty(cache).unwrap();
-    fs::File::create(path).unwrap().write_all(json.as_bytes()).unwrap();
-}
-
-fn write_mod_tree(out_root: &Path) {
-    fn gen_mod(dir: &Path) {
-        let mut mods = String::from("#![allow(warnings, clippy::all)]\n\n");
-        if let Ok(entries) = fs::read_dir(dir) {
-            for e in entries.flatten() {
-                let path = e.path();
-                if path.is_file()
-                    && path.extension().and_then(|x| x.to_str()) == Some("rs")
-                    && path.file_name().unwrap() != "mod.rs"
-                {
-                    let stem = path.file_stem().unwrap().to_string_lossy();
-                    mods.push_str(&format!("pub mod {};\n", stem));
-                }
-            }
-        }
-        fs::write(dir.join("mod.rs"), mods).unwrap();
-    }
-
-    let dto_dir = out_root.join("dto");
-    let types_dir = out_root.join("types");
-
-    if dto_dir.exists() {
-        gen_mod(&dto_dir);
-    }
-    if types_dir.exists() {
-        gen_mod(&types_dir);
-    }
-
-    fs::write(
-        out_root.join("mod.rs"),
-        "#![allow(warnings, clippy::all)]\n\npub mod dto;\npub mod types;\n",
-    )
-    .unwrap();
-}
-
-fn patch_generated(out_root: &Path) {
-    // Собираем маппинг: "tokens_generated" -> "crate::generated::types::tokens_generated"
-    let mut name_to_path: HashMap<String, String> = HashMap::new();
-
-    for subdir in &["dto", "types"] {
-        let dir = out_root.join(subdir);
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for e in entries.flatten() {
-                let path = e.path();
-                if path.extension().and_then(|x| x.to_str()) == Some("rs")
-                    && path.file_name().unwrap() != "mod.rs"
-                {
-                    let stem = path.file_stem().unwrap().to_string_lossy().to_string();
-                    let full = format!("crate::generated::{}::{}", subdir, stem);
-                    name_to_path.insert(stem, full);
-                }
-            }
-        }
-    }
-
-    // Патчим файлы: правим пути + добавляем allow атрибут
-    for subdir in &["dto", "types"] {
-        let dir = out_root.join(subdir);
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for e in entries.flatten() {
-                let path = e.path();
-                if path.extension().and_then(|x| x.to_str()) == Some("rs")
-                    && path.file_name().unwrap() != "mod.rs"
-                {
-                    let mut content = fs::read_to_string(&path).unwrap();
-
-                    // Фиксим crate:: пути
-                    for (short, full) in &name_to_path {
-                        let old = format!("crate::{}", short);
-                        content = content.replace(&old, full);
-                    }
-
-                    // Добавляем allow в начало
-                    content = format!("#![allow(warnings, clippy::all)]\n\n{}", content);
-
-                    fs::write(&path, content).unwrap();
-                }
-            }
-        }
-    }
-}
-
 fn main() {
-    let schema_root = PathBuf::from("flatbuffers");
-    let out_root = PathBuf::from("src/generated");
+    let schema_dir = "flatbuffers";
+    let out_root = "src/generated";
 
-    let cache_file = PathBuf::from(env::var("OUT_DIR").unwrap()).join("fbs_hash.json");
+    // Always re-run when any file in flatbuffers/ changes.
+    println!("cargo:rerun-if-changed={schema_dir}");
 
-    let dto_dir = schema_root.join("dto");
-    let types_dir = schema_root.join("types");
-
-    let all_files: Vec<_> =
-        collect_fbs(&types_dir).into_iter().chain(collect_fbs(&dto_dir)).collect();
-
-    println!("cargo:rerun-if-changed=flatbuffers");
-    for file in &all_files {
-        println!("cargo:rerun-if-changed={}", file.display());
-    }
-
-    let old_cache = load_cache(&cache_file);
-    let mut new_cache = HashMap::new();
-    let mut changed = false;
-
-    for file in &all_files {
-        let key = file.to_string_lossy().to_string();
-        let hash = hash_file(file);
-        if old_cache.get(&key) != Some(&hash) {
-            changed = true;
-        }
-        new_cache.insert(key, hash);
-    }
-
-    if !changed {
+    let files = collect_fbs(Path::new(schema_dir));
+    if files.is_empty() {
         return;
     }
 
-    fs::create_dir_all(&out_root).unwrap();
+    // --- Rust ---
+    let out_rs = Path::new(out_root);
+    fs::create_dir_all(out_rs).unwrap();
 
-    for file in &all_files {
-        let relative = file.strip_prefix(&schema_root).unwrap();
-        let out_subdir = out_root.join(relative.parent().unwrap_or(Path::new("")));
-        fs::create_dir_all(&out_subdir).unwrap();
-
+    for f in &files {
         let status = Command::new("flatc")
             .arg("--rust")
             .arg("-o")
-            .arg(&out_subdir)
+            .arg(out_rs)
             .arg("-I")
-            .arg(&dto_dir)
+            .arg(schema_dir)
+            .arg(f)
+            .status()
+            .expect("flatc not found — install: cargo install flatbuffers");
+
+        if !status.success() {
+            panic!("flatc (--rust) failed on {f}");
+        }
+    }
+
+    // Generate mod.rs — one module per generated .rs file.
+    let mut mods = String::from("#![allow(warnings, clippy::all)]\n\n");
+    if let Ok(entries) = fs::read_dir(out_rs) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_file()
+                && p.extension().and_then(|x| x.to_str()) == Some("rs")
+                && p.file_name().unwrap() != "mod.rs"
+            {
+                let stem = p.file_stem().unwrap().to_string_lossy();
+                mods.push_str(&format!("pub mod {stem};\n"));
+            }
+        }
+    }
+    fs::write(out_rs.join("mod.rs"), mods).unwrap();
+
+    // --- TypeScript ---
+    let ts_root = Path::new("ts");
+    let ts_out = ts_root.join("flatbuffers");
+    fs::create_dir_all(&ts_out).unwrap();
+
+    for f in &files {
+        let status = Command::new("flatc")
+            .arg("--ts")
+            .arg("--gen-object-api")
+            .arg("--gen-all")
+            .arg("-o")
+            .arg(&ts_out)
             .arg("-I")
-            .arg(&types_dir)
-            .arg(file)
+            .arg(schema_dir)
+            .arg(f)
             .status()
             .expect("flatc not found");
 
         if !status.success() {
-            panic!("flatc failed on {:?}", file);
+            panic!("flatc (--ts) failed on {f}");
         }
     }
 
-    write_mod_tree(&out_root);
-    patch_generated(&out_root);
-    save_cache(&cache_file, &new_cache);
+    let tsconfig = ts_root.join("tsconfig.json");
+    if tsconfig.exists() {
+        let _ = fs::remove_file(ts_out.join("index.ts"));
+        match Command::new("npx").arg("--yes").arg("tsc").current_dir(ts_root).status() {
+            Ok(s) if s.success() => println!("cargo:info=tsc: compiled ts/flatbuffers/ → ts/dist/"),
+            Ok(s) => {
+                println!("cargo:warning=tsc exited with code {s}");
+                println!("cargo:warning=Run `cd ts && npm install && npm run build`");
+            },
+            Err(e) => {
+                println!("cargo:warning=Could not run tsc: {e}");
+                println!("cargo:warning=Install Node.js deps: cd ts && npm install");
+            },
+        }
+    }
 }

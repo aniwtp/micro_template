@@ -2,22 +2,25 @@
 
 Backend microservice template on **ntex** + **redb** + **FlatBuffers**.
 
+Infrastructure in separate crates:
+- **tiny-log** — stderr logger (git dep)
+- **simple-conf** — config reader (git dep)
+- **db-wrapper** — redb wrapper (git dep)
+
 ---
 
 ## Quick start
 
 ```sh
-# 1. Copy and edit config (optional — defaults work out of the box)
+# 1. Generate from template
+cargo generate --git <repo-url> --name my-backend
+
+# 2. Copy env (optional — defaults work out of the box)
 cp .env.example .env
 
-# 2. Dev build (info-level logging by default)
+# 3. Build & run
 cargo build
-
-# 3. Run the server
 cargo run
-
-# 4. Manual login test (in another terminal)
-cargo test -- test_login_manual --nocapture
 ```
 
 ---
@@ -25,8 +28,7 @@ cargo test -- test_login_manual --nocapture
 ## Project structure
 
 ```
-tamplate/
-├── build.rs                 # flatc codegen with hash-based caching
+├── build.rs                 # flatc codegen (always rebuilds on change)
 ├── Cargo.toml               # deps + compile-time log level features
 ├── clippy.toml              # linter rules
 ├── rustfmt.toml             # formatter rules
@@ -34,28 +36,27 @@ tamplate/
 ├── AGENT.md                 # AI agent instructions
 ├── README.md                # ← this file
 │
-├── flatbuffers/             # IDL schemas (source of truth)
-│   ├── dto/login.fbs        # LoginRequest / TokenResponse
-│   └── types/tokens.fbs     # RSTokens, Bytes21, Bytes11
+├── flatbuffers/             # IDL schemas
+│   └── login.fbs            # LoginRequest / TokenResponse / RSTokens
 │
 └── src/
-    ├── main.rs              # entrypoint
-    ├── config.rs            # config! macro (secrets → env → .env)
-    ├── logging.rs           # compile-time logger
+    ├── main.rs              # entrypoint (thin — wires everything)
+    ├── lib.rs               # module declarations + re-exports
     │
-    ├── bd/mod.rs            # redb wrapper + write buffers
-    │
-    ├── errors/
-    │   ├── mod.rs           # AppError (umbrella)
-    │   ├── db.rs            # DbError
-    │   ├── config.rs        # ConfigError
-    │   └── auth.rs          # AuthError
+    ├── utils/
+    │   ├── convert.rs       # enum LoginReply — FB response builders
+    │   ├── db/
+    │   │   ├── mod.rs       # table registration
+    │   │   └── team.rs      # team table + TeamDb trait
+    │   └── errors/
+    │       ├── mod.rs       # AppError (umbrella)
+    │       └── auth.rs      # AuthError
     │
     ├── routes/
     │   ├── mod.rs           # /v1 scope
     │   └── auth/
     │       ├── mod.rs       # /v1/auth scope
-    │       └── login.rs     # POST /v1/auth/login + manual test
+    │       └── login.rs     # POST /v1/auth/login
     │
     ├── logic/mod.rs         # business logic
     └── generated/           # flatc output (gitignored)
@@ -65,14 +66,15 @@ tamplate/
 
 ## Stack
 
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Runtime | **ntex** on compio (io-uring) | Async, actor-less, no tokio dependency |
-| Database | **shodh-redb** (embedded K/V) | Single-file, TTL tables, no daemon |
-| Serialisation | **FlatBuffers** | Zero-copy, schema-first, compact wire format |
-| Logging | **log** + compile-time levels | Zero runtime cost for stripped levels |
-| Config | secrets → env → `.env` | Docker/K8s ready, local dev friendly |
-| Errors | **thiserror** | Derive macros, `#[from]` auto-conversion |
+| Component | Crate | Why |
+|-----------|-------|-----|
+| Runtime | **ntex** on compio (io-uring) | Async, actor-less, no tokio |
+| Database | **shodh-redb** (embedded K/V) | Single-file, TTL, no daemon |
+| DB wrapper | **db-wrapper** (git) | Write buffers, helpers |
+| Serialisation | **FlatBuffers** + `rust_flatbuffer_macros` | Zero-copy + macro builder |
+| Logging | **tiny-log** (git) | stderr, compile-time levels |
+| Config | **simple-conf** (git) | secrets → env → .env |
+| Errors | **thiserror** | Derive macros, `#[from]` |
 
 ---
 
@@ -81,11 +83,11 @@ tamplate/
 Priority (first match wins): **`/run/secrets/<KEY>` → `secrets/<KEY>` → env var → `.env`**
 
 ```rust
-// Returns Option<String> if key not found
-let val: Option<String> = config!("SOME_KEY");
+use simple_conf::config;
 
-// Returns String with fallback default
-let host: String = config!("BIND_ADDR", "localhost:8080");
+let val: Option<String> = config!("SOME_KEY");
+let host: String = config!("BIND_ADDR", "localhost:8080".into());
+let port: u16  = config!("PORT", 8080);
 ```
 
 | Key | Default | Description |
@@ -100,7 +102,7 @@ let host: String = config!("BIND_ADDR", "localhost:8080");
 Compile-time feature flags — pick exactly **one**:
 
 ```sh
-cargo build                                          # info+ (default)
+cargo build                                            # info+ (default)
 cargo build --no-default-features --features log-trace  # all levels
 cargo build --no-default-features --features log-debug  # debug+
 cargo build --no-default-features --features log-warn   # warn+
@@ -108,7 +110,7 @@ cargo build --no-default-features --features log-error  # error only
 cargo build --no-default-features --features log-off    # all stripped
 ```
 
-Code **below** the chosen level is removed by the compiler — zero runtime overhead.
+Code below the chosen level is removed by the compiler — zero runtime overhead.
 
 ---
 
@@ -127,23 +129,11 @@ Code **below** the chosen level is removed by the compiler — zero runtime over
 **Response** — FlatBuffer `TokenResponse`:
 - `token: RSTokens { refresh: [u8; 21], session: [u8; 11] }`
 
-Manual test sends a FlatBuffer request via `reqwest`:
+Response building via `LoginReply` enum in `utils/convert.rs`:
 
-```sh
-# Terminal 1: start server
-cargo run
-
-# Terminal 2: run manual test
-cargo test -- test_login_manual --nocapture
-```
-
-Example output:
-```
-→ POST http://localhost:8080/v1/auth/login
-  request body: 52 bytes
-← 200 OK  (1.23ms)
-  response body: 68 bytes
-  ✓ FlatBuffer parsed: ...
+```rust
+let reply = LoginReply::Success { refresh: [0u8; 21], session: [0u8; 11] };
+let body = reply.to_flatbuffer();  // → Vec<u8> ready for HTTP response
 ```
 
 ---
@@ -153,8 +143,6 @@ Example output:
 ```sh
 cargo build            # default (info logging)
 cargo run              # start server
-cargo test             # run all tests
-cargo test -- --nocapture  # show println! output
 cargo clippy           # lint
 cargo fmt              # format
 ```
@@ -164,11 +152,11 @@ cargo fmt              # format
 ## Conventions
 
 - `snake_case` for modules/files, `CamelCase` for types
-- `use crate::module::Type` — no `super::`
+- `use crate::module::Type` in library code
+- `use {{crate_name}}::…` in `main.rs` (replaced by cargo-generate)
 - Errors via `thiserror`, `#[from]` for auto-conversion
+- Responses via enums in `utils/convert.rs` with `.to_flatbuffer()`
 - Always include module/endpoint name in log messages
-- Handlers are `async fn` returning `impl Responder`
-- State via `ntex::web::types::State<T>`
 
 ---
 
@@ -176,11 +164,13 @@ cargo fmt              # format
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| `ntex` | 3.9 | Web framework (compio) |
+| `ntex` | 3.10 | Web framework (compio) |
 | `shodh-redb` | 0.5 | Embedded K/V with TTL |
+| `db-wrapper` | git | redb wrapper + write buffers |
 | `flatbuffers` | 25.12 | Zero-copy serialisation |
+| `rust_flatbuffer_macros` | 1.1 | `build_flatbuffer!` macro |
+| `paste` | 1 | Identifier concatenation |
 | `log` | 0.4 | Logging facade |
 | `thiserror` | 2.0 | Error derive |
-| `blake3` | 1 | Build-time hash caching |
-| `serde` / `serde_json` | 1 | Build-script config |
-| `reqwest` | 0.12 | Dev — manual HTTP test client |
+| `tiny-log` | git | Stderr logger (external) |
+| `simple-conf` | git | Config reader (external) |

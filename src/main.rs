@@ -3,12 +3,12 @@ use std::time::Duration;
 
 use db_wrapper::DBWrapper;
 use db_wrapper::counter::BUFFER_FLUSH_SECS;
-use {{crate_name}}::errors::AppError;
-use {{crate_name}}::{config, logging, routes};
+use {{crate_name}}::{errors::AppError, routes, utils::db};
+use simple_conf::config;
 
 #[ntex::main]
 async fn main() -> Result<(), AppError> {
-    logging::init()?;
+    tiny_log::init()?;
     log::info!("=== {{project-name}} starting ===");
 
     let db_path: String = config!("DB_PATH", "test.redb".to_owned());
@@ -23,7 +23,7 @@ async fn main() -> Result<(), AppError> {
     log::info!("database opened successfully");
 
     // --- Register tables ---
-    {{crate_name}}::db::init_tables(&db);
+    db::init_tables(&db);
 
     // --- Spawn background maintenance ---
     log::info!("spawning maintenance loop (flush every {BUFFER_FLUSH_SECS}s)");
@@ -43,7 +43,7 @@ async fn main() -> Result<(), AppError> {
             }
 
             // Daily compact + backup.
-            if tick % ticks_per_day == 0 {
+            if tick.is_multiple_of(ticks_per_day) {
                 log::info!("maintenance: daily compact + backup");
                 if let Err(e) = db2.compact() {
                     log::error!("compaction error: {e}");

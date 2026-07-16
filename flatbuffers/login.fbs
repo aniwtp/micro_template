@@ -1,0 +1,28 @@
+// Types used across DTOs.
+namespace Types;
+
+struct Bytes21 {
+  data:[ubyte:21];
+}
+
+struct Bytes11 {
+  data:[ubyte:11];
+}
+
+table RSTokens {
+  refresh:Bytes21;
+  session:Bytes11;
+}
+root_type RSTokens;
+
+// Login DTO.
+namespace DTO.Login;
+
+table LoginRequest {
+    username: string;
+    password: string;
+}
+
+table TokenResponse {
+    token: Types.RSTokens;
+}

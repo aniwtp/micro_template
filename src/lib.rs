@@ -1,7 +1,10 @@
-pub mod config;
-pub mod db;
-pub mod errors;
 pub mod generated;
-pub mod logging;
 pub mod logic;
 pub mod routes;
+pub mod utils;
+
+pub use simple_conf::config;
+
+// Re-export common items
+pub use utils::errors;
+pub use utils::{convert::LoginReply, errors::{AppError, AuthError}};

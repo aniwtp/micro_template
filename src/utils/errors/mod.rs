@@ -1,12 +1,9 @@
 //! Centralised error types for `{{project-name}}`.
 
 mod auth;
-mod config;
 
 pub use auth::AuthError;
-pub use config::ConfigError;
-
-// Re-export DbError from team-db.
+pub use simple_conf::ConfigError;
 pub use db_wrapper::DbError;
 
 // ---------------------------------------------------------------------------
@@ -19,7 +16,7 @@ pub enum AppError {
     Db(#[from] db_wrapper::DbError),
 
     #[error("config: {0}")]
-    Config(#[from] ConfigError),
+    Config(#[from] simple_conf::ConfigError),
 
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
