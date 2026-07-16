@@ -1,5 +1,5 @@
 /target
-/src/generated
+/src/utils/generated
 *.redb
 /tiny-log
 /simple-conf

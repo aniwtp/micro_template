@@ -17,7 +17,7 @@ fn collect_fbs(dir: &Path) -> Vec<String> {
 
 fn main() {
     let schema_dir = "flatbuffers";
-    let out_root = "src/generated";
+    let out_root = "src/utils/generated";
 
     // Always re-run when any file in flatbuffers/ changes.
     println!("cargo:rerun-if-changed={schema_dir}");

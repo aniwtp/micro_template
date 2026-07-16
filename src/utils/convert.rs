@@ -6,7 +6,7 @@
 use flatbuffers::FlatBufferBuilder;
 use rust_flatbuffer_macros::build_flatbuffer;
 
-use crate::generated::login_generated::{
+use crate::utils::generated::login_generated::{
     dto::login::{TokenResponse, TokenResponseArgs},
     types::{Bytes11, Bytes21, RSTokens, RSTokensArgs},
 };

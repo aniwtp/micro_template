@@ -1,4 +1,3 @@
-pub mod generated;
 pub mod logic;
 pub mod routes;
 pub mod utils;

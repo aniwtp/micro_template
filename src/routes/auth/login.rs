@@ -6,7 +6,7 @@ use db_wrapper::DBWrapper;
 
 use crate::{
     errors::AuthError,
-    generated::login_generated::dto::login::LoginRequest,
+    utils::generated::login_generated::dto::login::LoginRequest,
     LoginReply,
 };
 
