@@ -31,3 +31,9 @@ pub enum AuthError {
     #[error("missing required field: {0}")]
     MissingField(String),
 }
+
+impl From<flatbuffers::InvalidFlatbuffer> for AuthError {
+    fn from(e: flatbuffers::InvalidFlatbuffer) -> Self {
+        Self::MalformedRequest(e.to_string())
+    }
+}

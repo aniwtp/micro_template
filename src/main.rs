@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use db_wrapper::DBWrapper;
 use db_wrapper::counter::BUFFER_FLUSH_SECS;
-use {{crate_name}}::{errors::AppError, routes, utils::db};
+use {{crate_name}}::{errors::AppError, routes, utils::{db, xor::{XorState, XorMiddleware}}};
+// use {{crate_name}}::utils::db;
 use simple_conf::config;
 
 #[ntex::main]
@@ -54,7 +55,7 @@ async fn main() -> Result<(), AppError> {
             }
         }
     }));
-
+    let xor_state = XorState::new(65536, Duration::from_secs(60));
     // --- Build app ---
     let app = async move || {
         log::trace!("building new application scope");
