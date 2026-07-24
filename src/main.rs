@@ -59,7 +59,7 @@ async fn main() -> Result<(), AppError> {
     // --- Build app ---
     let app = async move || {
         log::trace!("building new application scope");
-        web::App::new().state(db.clone()).configure(routes::routes)
+        web::App::new().state(db.clone()).middleware(XorMiddleware::new(xor_state.clone())).configure(routes::routes)
     };
 
     // --- Start server ---
