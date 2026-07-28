@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  team:
+    image: registry.kuma.pics/siro/{{project-name}}:latest
+    security_opt:
+      - seccomp=unconfined
+    ports:
+      - target: 8081
+        published: 8082
+        protocol: tcp
+        mode: host
+    environment:
+      DB_PATH: test.redb
+      BIND_ADDR: 0.0.0.0:8081
+      # APY_KEY: pre_relise
+      # CAPNP_BIND_ADDR: 0.0.0.0:9091
+      # BUFFER_SIZE: 200
+      # BUFFER_TTL: 2
+    # networks:                  # ← добавить
+    #   - oidc_net               # ← добавить
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
+# networks:
+#   oidc_net:
+#     external: true
+#     name: oidc_net
+
+# volumes:
+#   oidc_data:
+    # driver: local
