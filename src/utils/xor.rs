@@ -1,16 +1,17 @@
 //! XOR obfuscation middleware with replay protection.
 //!
-//! Lock-free, u32 optimized, with Double-Buffered rotating bitsets 
+//! Lock-free, u32 optimized, with Double-Buffered rotating bitsets
 //! to prevent long-term collisions.
 
 use std::fs::File;
 use std::io::Read;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use ntex::SharedCfg;
 use ntex::http::body::{Body, ResponseBody};
 use ntex::http::error::PayloadError;
 use ntex::http::header::{HeaderName, HeaderValue};
@@ -18,7 +19,6 @@ use ntex::http::{Payload, StatusCode};
 use ntex::service::{Middleware, Service, ServiceCtx};
 use ntex::util::{Bytes, Stream};
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
-use ntex::SharedCfg;
 
 const MAGIC_LEN: usize = 4;
 const MAGIC: [u8; MAGIC_LEN] = [0xC0, 0xDE, 0x5E, 0xED];
@@ -55,7 +55,7 @@ fn xor_check_magic(data: &mut [u8], seed: u32) -> bool {
         for (b, k) in chunk.iter_mut().zip(key.iter()) {
             *b ^= *k;
         }
-        if i == 0 && chunk != &MAGIC {
+        if i == 0 && chunk != MAGIC {
             return false;
         }
     }
@@ -102,7 +102,7 @@ fn random_u32_seed() -> u32 {
 
 impl XorState {
     /// Создает стейт и запускает фоновую ротацию (вызывать внутри ntex worker'а)
-    /// 
+    ///
     /// * `bitset_words` - размер одного буфера. 65536 = 512 КБ памяти = 4.1 млн бит.
     /// * `rotation_interval` - как часто сбрасывать старые ключи (например, 60 секунд).
     pub fn new(bitset_words: usize, rotation_interval: Duration) -> Self {
@@ -121,7 +121,7 @@ impl XorState {
         });
 
         let state = Self { inner };
-        
+
         // Запускаем фоновую задачу для очистки старых ключей без блокировок
         let state_clone = state.clone();
         ntex::rt::spawn(async move {
@@ -143,7 +143,7 @@ impl XorState {
             word.store(0, Ordering::Relaxed);
         }
 
-        // 2. Атомарно переключаем активный индекс. 
+        // 2. Атомарно переключаем активный индекс.
         // Теперь все новые mark_used пойдут в свежий пустой битсет.
         self.inner.active_idx.store(next, Ordering::Release);
     }
@@ -155,12 +155,12 @@ impl XorState {
 
         let active = self.inner.active_idx.load(Ordering::Relaxed);
         let inactive = active ^ 1;
-        
+
         // Проверяем текущий буфер
         if (self.inner.bitsets[active][word_idx].load(Ordering::Relaxed) & mask) != 0 {
             return false;
         }
-        
+
         // Проверяем предыдущий буфер (чтобы защититься от реплеев сразу после ротации)
         if (self.inner.bitsets[inactive][word_idx].load(Ordering::Relaxed) & mask) != 0 {
             return false;
@@ -175,7 +175,7 @@ impl XorState {
         let mask = 1 << (bit_index % 64);
 
         let active = self.inner.active_idx.load(Ordering::Relaxed);
-        
+
         // Пишем только в активный буфер
         self.inner.bitsets[active][word_idx].fetch_or(mask, Ordering::Relaxed);
     }
@@ -240,10 +240,7 @@ impl<S> Middleware<S, SharedCfg> for XorMiddleware {
     type Service = XorService<S>;
 
     fn create(&self, service: S, _cfg: SharedCfg) -> Self::Service {
-        XorService {
-            service,
-            state: self.state.clone(),
-        }
+        XorService { service, state: self.state.clone() }
     }
 }
 
@@ -316,7 +313,7 @@ where
         };
 
         if raw.is_empty() {
-            Ok(res)
+            Ok(res.map_body(|_head, _body| ResponseBody::Body(Body::Empty)))
         } else {
             let mut buf = raw.to_vec();
             let rk = self.state.next_resp_key();
