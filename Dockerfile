@@ -49,7 +49,7 @@ FROM scratch
 
 COPY --from=builder \
     /build/target/x86_64-unknown-linux-musl/release/{{project-name}} \
-    /team_admin
+    /{{project-name}}
 
 EXPOSE 8081
 
