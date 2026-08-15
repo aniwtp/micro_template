@@ -56,18 +56,37 @@ async fn main() -> Result<(), AppError> {
             }
         }
     }));
-    let xor_state = XorState::new(65536, Duration::from_secs(60));
+let xor_state = XorState::new(65536, Duration::from_secs(60));
     // --- Build app ---
+    // Give the app factory its own clone: `db` itself must stay alive after
+    // `run().await` returns, for the final flush/compact/backup below.
+    let db_for_app = db.clone();
     let app = async move || {
         log::trace!("building new application scope");
-        web::App::new().state(db.clone()).middleware(XorMiddleware::new(xor_state.clone())).configure(routes::routes)
+        web::App::new().state(db_for_app.clone()).middleware(XorMiddleware::new(xor_state.clone())).configure(routes::routes)
     };
 
     // --- Start server ---
     log::info!("starting HTTP server on {bind_addr}");
     let server = web::server(app);
 
+    // `run().await` только резолвится после того, как ntex уже поймал стоп-сигнал
+    // (CTRL-C везде, SIGTERM на unix) и грациозно дождался активных запросов
+    // (по умолчанию shutdown_timeout = 30s). Значит здесь уже безопасно — и нужно —
+    // сделать финальный синхронный flush: фоновая maintenance-таска выше отвязана
+    // от сервера и иначе будет просто убита посреди цикла, молча теряя буфер.
     server.bind(&bind_addr)?.run().await?;
-    log::info!("server shut down");
+
+    log::info!("server stopped, flushing buffers before exit...");
+    if let Err(e) = db.flush_buffers() {
+        log::error!("final buffer flush failed: {e}");
+    }
+    if let Err(e) = db.compact() {
+        log::error!("final compaction failed: {e}");
+    }
+    if let Err(e) = db.backup() {
+        log::error!("final backup failed: {e}");
+    }
+    log::info!("shutdown complete");
     Ok(())
 }
