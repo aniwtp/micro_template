@@ -3,9 +3,10 @@ use std::time::Duration;
 
 use db_wrapper::DBWrapper;
 use db_wrapper::counter::BUFFER_FLUSH_SECS;
-use {{crate_name}}::{errors::AppError, routes, utils::{db, xor::{XorState, XorMiddleware}}};
+use {{crate_name}}::{errors::AppError, routes, utils::db};
 // use {{crate_name}}::utils::db;
 use simple_conf::config;
+use xor::{XorState, XorMiddleware};
 
 #[ntex::main]
 async fn main() -> Result<(), AppError> {

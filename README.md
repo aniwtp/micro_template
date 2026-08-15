@@ -6,6 +6,10 @@ Infrastructure in separate crates:
 - **tiny-log** — stderr logger (git dep)
 - **simple-conf** — config reader (git dep)
 - **db-wrapper** — redb wrapper (git dep)
+- **xor** — XOR-obfuscation middleware with replay protection (git dep)
+- **user-validate** — session-token validation, ChaCha20Poly1305 (git dep)
+- **md-html** — markdown → sanitised HTML + length validation (git dep)
+- **translit** — transliteration + slug generation, lindera/pinyin/deunicode (git dep)
 
 ---
 
@@ -174,3 +178,7 @@ cargo fmt              # format
 | `thiserror` | 2.0 | Error derive |
 | `tiny-log` | git | Stderr logger (external) |
 | `simple-conf` | git | Config reader (external) |
+| `xor` | git | XOR-obfuscation middleware (external) |
+| `user-validate` | git | Session-token validation (external) |
+| `md-html` | git | Markdown → sanitised HTML (external) |
+| `translit` | git | Transliteration + slug (external) |

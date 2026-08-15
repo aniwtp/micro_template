@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
 
+    #[error("auth: {0}")]
+    Token(#[from] user_validate::TokenError),
+
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
@@ -52,6 +55,7 @@ impl WebResponseError for AppError {
                 AuthError::MissingField(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             },
+            Self::Token(_) => StatusCode::UNAUTHORIZED,
             Self::Flatbuffer(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }

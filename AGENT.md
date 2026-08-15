@@ -7,6 +7,10 @@ Infrastructure extracted to separate crates:
 - **tiny-log** — stderr logger with compile-time levels (git dep)
 - **simple-conf** — config reader: secrets → env → .env + `config!` macro (git dep)
 - **db-wrapper** — redb wrapper with write buffers (git dep)
+- **xor** — XOR-obfuscation middleware with replay protection (git dep)
+- **user-validate** — session-token validation (ChaCha20Poly1305, git dep)
+- **md-html** — markdown → sanitised HTML + length validation (git dep)
+- **translit** — transliteration + slug generation (lindera/pinyin/deunicode, git dep)
 
 ---
 
@@ -139,6 +143,7 @@ AppError (umbrella)
 ├── Db(#[from] db_wrapper::DbError)
 ├── Config(#[from] simple_conf::ConfigError)
 ├── Auth(#[from] AuthError)
+├── Token(#[from] user_validate::TokenError)
 ├── Io(#[from] std::io::Error)
 ├── Logger(#[from] SetLoggerError)
 ├── Flatbuffer(#[from] InvalidFlatbuffer)
@@ -191,3 +196,7 @@ AppError (umbrella)
 | `thiserror` | 2.0 | Derive `Error` for enums |
 | `tiny-log` | git | Stderr logger (external crate) |
 | `simple-conf` | git | Config reader + `config!` macro (external crate) |
+| `xor` | git | XOR-obfuscation middleware (external crate) |
+| `user-validate` | git | Session-token validation (external crate) |
+| `md-html` | git | Markdown → sanitised HTML (external crate) |
+| `translit` | git | Transliteration + slug (external crate) |
