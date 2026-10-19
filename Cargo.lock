@@ -3433,7 +3433,7 @@ dependencies = [
 [[package]]
 name = "user-validate"
 version = "0.1.0"
-source = "git+https://github.com/aniwtp/user-validate.git#eb6846bac69c91c5a762d056855b547eee979790"
+source = "git+https://github.com/aniwtp/user-validate.git#346f3a461db56f70927a6124ac53b933e13a37f0"
 dependencies = [
  "base64-turbo",
  "blake3",
@@ -3830,7 +3830,7 @@ dependencies = [
 [[package]]
 name = "xor"
 version = "0.1.0"
-source = "git+https://github.com/aniwtp/xor.git#7259420885ed743cc7571ff2c629e95165a56f10"
+source = "git+https://github.com/aniwtp/xor.git?rev=77d6b289988bf3c90590fd10013dedd57a641b49#77d6b289988bf3c90590fd10013dedd57a641b49"
 dependencies = [
  "ntex",
 ]
