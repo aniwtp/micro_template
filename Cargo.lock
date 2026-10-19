@@ -3830,7 +3830,7 @@ dependencies = [
 [[package]]
 name = "xor"
 version = "0.1.0"
-source = "git+https://github.com/aniwtp/xor.git?rev=77d6b289988bf3c90590fd10013dedd57a641b49#77d6b289988bf3c90590fd10013dedd57a641b49"
+source = "git+https://github.com/aniwtp/xor.git?rev=67ee5b89b993dd35b1b670b14ec4894095c0ef48#67ee5b89b993dd35b1b670b14ec4894095c0ef48"
 dependencies = [
  "ntex",
 ]
